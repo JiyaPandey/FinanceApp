@@ -7,12 +7,14 @@ from streamlit_autorefresh import st_autorefresh
 
 st_autorefresh(interval=30 * 1000, key="auto-refresh")
 
+# Stocks to choose from
 available_stocks = {
     "Motilal Oswal Midcap": "0P00012ALS.BO",
     "Facebook (Meta)": "META",
     "Netflix": "NFLX"
 }
 
+# Time period mappings
 duration_map = {
     '1W': '5d',
     '1M': '1mo',
@@ -23,9 +25,9 @@ duration_map = {
 }
 
 st.title("Stock Price Analysis & Portfolio Tracker")
-
 tab1, tab2 = st.tabs(["Stock Analysis", "Portfolio"])
 
+# --------------- TAB 1: STOCK ANALYSIS ------------------
 with tab1:
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -35,7 +37,6 @@ with tab1:
 
     ticker_symbol = available_stocks[selected_stock]
     period = duration_map[selected_duration_label]
-
     ticker = yf.Ticker(ticker_symbol)
     data = ticker.history(period=period)
 
@@ -51,7 +52,6 @@ with tab1:
             change = latest_close - first_close
             percent_change = (change / first_close) * 100
             change_color = "green" if change >= 0 else "red"
-
             price_to_show = current_price if current_price else latest_close
 
             st.markdown(
@@ -81,6 +81,7 @@ with tab1:
         )
         st.plotly_chart(fig, use_container_width=True)
 
+# --------------- TAB 2: PORTFOLIO TRACKER ------------------
 with tab2:
     st.header("Portfolio Tracker")
 
@@ -94,87 +95,99 @@ with tab2:
 
         submitted = st.form_submit_button("Add to Portfolio")
 
-        if submitted:
-            # If the stock is already in portfolio, add units & update buy date if earlier
-            found = False
-            for item in st.session_state['portfolio']:
-                if item['stock'] == stock_choice:
-                    item['units'] += units
-                    if buy_date < item['buy_date']:
-                        item['buy_date'] = buy_date
-                    found = True
-                    break
-            if not found:
-                st.session_state['portfolio'].append({
-                    "stock": stock_choice,
-                    "symbol": available_stocks[stock_choice],
-                    "buy_date": buy_date,
-                    "units": units
-                })
+        if submitted and units > 0:
+            st.session_state['portfolio'].append({
+                "stock": stock_choice,
+                "symbol": available_stocks[stock_choice],
+                "buy_date": buy_date,
+                "units": units
+            })
             st.success(f"Added {units:.2f} units of {stock_choice} bought on {buy_date}")
 
     if st.session_state['portfolio']:
         st.markdown("### Portfolio Summary")
 
-        min_buy_date = min([item['buy_date'] for item in st.session_state['portfolio']])
-        start_date = min_buy_date.strftime("%Y-%m-%d")
-        end_date = datetime.today().strftime("%Y-%m-%d")
+        # Time duration selection for history data
+        selected_duration_label_portfolio = st.radio(
+            "Select Time Duration for Portfolio Chart:",
+            list(duration_map.keys()), horizontal=True,
+            key="portfolio_duration"
+        )
 
-        # Create empty DataFrame with all dates in range
+        period = duration_map[selected_duration_label_portfolio]
+
+        fig = go.Figure()
         portfolio_value_df = pd.DataFrame()
 
         for item in st.session_state['portfolio']:
             ticker = yf.Ticker(item['symbol'])
-            hist = ticker.history(start=start_date, end=end_date)
+            hist = ticker.history(period=period)
 
-            if hist.empty:
+            if hist.empty or "Close" not in hist:
                 continue
 
             hist = hist[['Close']].copy()
-            hist.rename(columns={'Close': item['stock']}, inplace=True)
-            hist.index = pd.to_datetime(hist.index)
+            hist.reset_index(inplace=True)
+            hist["Date"] = pd.to_datetime(hist["Date"])
+            hist.set_index("Date", inplace=True)
 
-            # Multiply closing prices by units
-            hist[item['stock']] = hist[item['stock']] * item['units']
+            # Unique label per purchase (stock + buy date)
+            label = f"{item['stock']} ({item['buy_date'].strftime('%Y-%m-%d')})"
 
+            # Calculate value over time (units * close price)
+            hist[label] = hist["Close"] * item['units']
+
+            # Merge into portfolio_value_df without merging same stocks or dates
             if portfolio_value_df.empty:
-                portfolio_value_df = hist
+                portfolio_value_df = hist[[label]].copy()
             else:
-                portfolio_value_df = portfolio_value_df.join(hist, how='outer')
+                portfolio_value_df = portfolio_value_df.join(hist[[label]], how="outer")
 
-        # Fill missing values with 0 (in case some stocks don't trade every day)
+            # Add individual trace for this purchase
+            fig.add_trace(go.Scatter(
+                x=hist.index,
+                y=hist[label],
+                mode='lines',
+                name=label
+            ))
+
         portfolio_value_df.fillna(0, inplace=True)
-
-        # Sum across stocks to get total portfolio value
         portfolio_value_df['Total Value'] = portfolio_value_df.sum(axis=1)
 
-        # Calculate change & color for graph
-        first_value = portfolio_value_df['Total Value'].iloc[0]
-        last_value = portfolio_value_df['Total Value'].iloc[-1]
-        change = last_value - first_value
-        change_color = "green" if change >= 0 else "red"
+        # Add total portfolio value line on top
+        fig.add_trace(go.Scatter(
+            x=portfolio_value_df.index,
+            y=portfolio_value_df['Total Value'],
+            mode='lines',
+            name='Total Portfolio Value',
+            line=dict(color='white', width=4)
+        ))
 
-        # Show portfolio total value today
+        # Display total portfolio value today
+        last_value = portfolio_value_df['Total Value'].iloc[-1] if not portfolio_value_df.empty else 0
         st.markdown(
             f"<h3>Total Portfolio Value Today: ₹{last_value:,.2f}</h3>",
             unsafe_allow_html=True
         )
 
-        # Mountain chart of total portfolio value over time
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=portfolio_value_df.index,
-            y=portfolio_value_df['Total Value'],
-            fill='tozeroy',
-            mode='lines',
-            line=dict(color=change_color),
-            fillcolor='rgba(0, 255, 0, 0.2)' if change >= 0 else 'rgba(255, 0, 0, 0.2)'
-        ))
         fig.update_layout(
-            title="Portfolio Total Value Over Time",
+            title="Portfolio Value Over Time",
             xaxis_title="Date",
             yaxis_title="Value (₹)",
             template="plotly_dark",
             margin=dict(t=40, l=0, r=0, b=0)
         )
+
         st.plotly_chart(fig, use_container_width=True)
+
+        # Option to remove stock entries
+        st.markdown("### Remove Stock from Portfolio")
+        removal_options = [
+            f"{item['stock']} ({item['buy_date']}, {item['units']} units)"
+            for item in st.session_state['portfolio']
+        ]
+        to_remove = st.selectbox("Select an entry to remove:", removal_options)
+        if st.button("Remove Selected"):
+            index_to_remove = removal_options.index(to_remove)
+            removed = st.session_state['portfolio'].pop(index_to_remove)
+            st.success(f"Removed {removed['stock']} bought on {removed['buy_date']}")
