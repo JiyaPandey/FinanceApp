@@ -105,7 +105,7 @@ with tab2:
             st.rerun()
 
     if st.session_state['portfolio']:
-        st.markdown("###  Portfolio Summary")
+        st.markdown("### Portfolio Summary")
 
         # Create column headers
         col1, col2, col3, col4, col5 = st.columns([3, 3, 2, 2, 1])
@@ -113,7 +113,7 @@ with tab2:
         col2.markdown("**Buy Date**")
         col3.markdown("**Units**")
         col4.markdown("**Symbol**")
-        col5.markdown("**delete**")
+        col5.markdown("**Delete**")
 
         for i, item in enumerate(st.session_state['portfolio']):
             col1, col2, col3, col4, col5 = st.columns([3, 3, 2, 2, 1])
@@ -132,51 +132,55 @@ with tab2:
         )
         period = duration_map[selected_duration_label]
 
-        # Create overall portfolio value DataFrame
-        portfolio_value_df = pd.DataFrame()
+        # Create total portfolio value DataFrame
+        total_value_df = pd.DataFrame()
 
-        for idx, item in enumerate(st.session_state['portfolio']):
+        for item in st.session_state['portfolio']:
             ticker = yf.Ticker(item['symbol'])
             hist = ticker.history(period=period)
 
             if hist.empty or "Close" not in hist:
                 continue
 
-            hist = hist[['Close']].copy()
-            hist.reset_index(inplace=True)
-            hist["Date"] = pd.to_datetime(hist["Date"])
-            hist.set_index("Date", inplace=True)
+            # Fix timezone issue
+            if hist.index.tz is not None:
+                hist.index = hist.index.tz_localize(None)
 
-            label = f"{item['symbol']}_{idx}"
-            hist[label] = hist["Close"] * item['units']
+            # Calculate value only from buy date onward
+            buy_date_ts = pd.Timestamp(item['buy_date'])
+            hist['Value'] = hist["Close"] * item['units']
+            hist.loc[hist.index < buy_date_ts, 'Value'] = 0
 
-            if portfolio_value_df.empty:
-                portfolio_value_df = hist[[label]]
+            hist = hist[['Value']].copy()
+
+            if total_value_df.empty:
+                total_value_df = hist
             else:
-                portfolio_value_df = portfolio_value_df.join(hist[[label]], how="outer")
+                total_value_df = total_value_df.join(hist, how="outer", rsuffix='_dup')
 
-        if not portfolio_value_df.empty:
-            portfolio_value_df.fillna(0, inplace=True)
-            portfolio_value_df['Total Value'] = portfolio_value_df.sum(axis=1)
+        if not total_value_df.empty:
+            total_value_df.fillna(0, inplace=True)
+            total_value_df['Total Value'] = total_value_df.sum(axis=1)
 
-            latest_value = portfolio_value_df['Total Value'].iloc[-1]
+            latest_value = total_value_df['Total Value'].iloc[-1]
             st.markdown(
                 f"<h3> Total Portfolio Value Today: ₹{latest_value:,.2f}</h3>",
                 unsafe_allow_html=True
             )
 
-            # Plot overall portfolio value
+            # Plot portfolio value
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=portfolio_value_df.index,
-                y=portfolio_value_df['Total Value'],
+                x=total_value_df.index,
+                y=total_value_df['Total Value'],
+                fill='tozeroy',
                 mode='lines+markers',
                 name='Total Value',
-                line=dict(color='lime', width=3)
+                line=dict(color='lime', width=2)
             ))
 
             fig.update_layout(
-                title=" Overall Portfolio Value Over Time",
+                title="Overall Portfolio Value Over Time",
                 xaxis_title="Date",
                 yaxis_title="Value (₹)",
                 template="plotly_dark",
