@@ -91,8 +91,7 @@ with tab2:
     with st.form("portfolio_form"):
         stock_choice = st.selectbox("Select Stock:", list(available_stocks.keys()))
         buy_date = st.date_input("Buy Date", value=datetime.today())
-        units = st.number_input("Units Owned", min_value=0.0, step=0.01, format="%.2f")
-
+        units = st.number_input("Units Owned", min_value=0.0, step=0.001, format="%.5f")
         submitted = st.form_submit_button("Add to Portfolio")
 
         if submitted and units > 0:
@@ -102,24 +101,41 @@ with tab2:
                 "buy_date": buy_date,
                 "units": units
             })
-            st.success(f"Added {units:.2f} units of {stock_choice} bought on {buy_date}")
+            st.success(f"✅ Added {units:.2f} units of {stock_choice} bought on {buy_date}")
+            st.rerun()
 
     if st.session_state['portfolio']:
-        st.markdown("### Portfolio Summary")
+        st.markdown("###  Portfolio Summary")
 
-        # Time duration selection for history data
-        selected_duration_label_portfolio = st.radio(
-            "Select Time Duration for Portfolio Chart:",
-            list(duration_map.keys()), horizontal=True,
-            key="portfolio_duration"
+        # Create column headers
+        col1, col2, col3, col4, col5 = st.columns([3, 3, 2, 2, 1])
+        col1.markdown("**Stock**")
+        col2.markdown("**Buy Date**")
+        col3.markdown("**Units**")
+        col4.markdown("**Symbol**")
+        col5.markdown("**delete**")
+
+        for i, item in enumerate(st.session_state['portfolio']):
+            col1, col2, col3, col4, col5 = st.columns([3, 3, 2, 2, 1])
+            col1.write(item['stock'])
+            col2.write(item['buy_date'].strftime("%Y-%m-%d"))
+            col3.write(f"{item['units']:.4f}")
+            col4.write(item['symbol'])
+            if col5.button("🗑️", key=f"del_{i}"):
+                st.session_state['portfolio'].pop(i)
+                st.rerun()
+
+        st.markdown("---")
+        selected_duration_label = st.radio(
+            "Select Time Duration:",
+            list(duration_map.keys()), horizontal=True, key="portfolio_duration"
         )
+        period = duration_map[selected_duration_label]
 
-        period = duration_map[selected_duration_label_portfolio]
-
-        fig = go.Figure()
+        # Create overall portfolio value DataFrame
         portfolio_value_df = pd.DataFrame()
 
-        for item in st.session_state['portfolio']:
+        for idx, item in enumerate(st.session_state['portfolio']):
             ticker = yf.Ticker(item['symbol'])
             hist = ticker.history(period=period)
 
@@ -131,63 +147,42 @@ with tab2:
             hist["Date"] = pd.to_datetime(hist["Date"])
             hist.set_index("Date", inplace=True)
 
-            # Unique label per purchase (stock + buy date)
-            label = f"{item['stock']} ({item['buy_date'].strftime('%Y-%m-%d')})"
-
-            # Calculate value over time (units * close price)
+            label = f"{item['symbol']}_{idx}"
             hist[label] = hist["Close"] * item['units']
 
-            # Merge into portfolio_value_df without merging same stocks or dates
             if portfolio_value_df.empty:
-                portfolio_value_df = hist[[label]].copy()
+                portfolio_value_df = hist[[label]]
             else:
                 portfolio_value_df = portfolio_value_df.join(hist[[label]], how="outer")
 
-            # Add individual trace for this purchase
+        if not portfolio_value_df.empty:
+            portfolio_value_df.fillna(0, inplace=True)
+            portfolio_value_df['Total Value'] = portfolio_value_df.sum(axis=1)
+
+            latest_value = portfolio_value_df['Total Value'].iloc[-1]
+            st.markdown(
+                f"<h3> Total Portfolio Value Today: ₹{latest_value:,.2f}</h3>",
+                unsafe_allow_html=True
+            )
+
+            # Plot overall portfolio value
+            fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=hist.index,
-                y=hist[label],
-                mode='lines',
-                name=label
+                x=portfolio_value_df.index,
+                y=portfolio_value_df['Total Value'],
+                mode='lines+markers',
+                name='Total Value',
+                line=dict(color='lime', width=3)
             ))
 
-        portfolio_value_df.fillna(0, inplace=True)
-        portfolio_value_df['Total Value'] = portfolio_value_df.sum(axis=1)
+            fig.update_layout(
+                title=" Overall Portfolio Value Over Time",
+                xaxis_title="Date",
+                yaxis_title="Value (₹)",
+                template="plotly_dark",
+                margin=dict(t=40, l=0, r=0, b=0)
+            )
 
-        # Add total portfolio value line on top
-        fig.add_trace(go.Scatter(
-            x=portfolio_value_df.index,
-            y=portfolio_value_df['Total Value'],
-            mode='lines',
-            name='Total Portfolio Value',
-            line=dict(color='white', width=4)
-        ))
-
-        # Display total portfolio value today
-        last_value = portfolio_value_df['Total Value'].iloc[-1] if not portfolio_value_df.empty else 0
-        st.markdown(
-            f"<h3>Total Portfolio Value Today: ₹{last_value:,.2f}</h3>",
-            unsafe_allow_html=True
-        )
-
-        fig.update_layout(
-            title="Portfolio Value Over Time",
-            xaxis_title="Date",
-            yaxis_title="Value (₹)",
-            template="plotly_dark",
-            margin=dict(t=40, l=0, r=0, b=0)
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Option to remove stock entries
-        st.markdown("### Remove Stock from Portfolio")
-        removal_options = [
-            f"{item['stock']} ({item['buy_date']}, {item['units']} units)"
-            for item in st.session_state['portfolio']
-        ]
-        to_remove = st.selectbox("Select an entry to remove:", removal_options)
-        if st.button("Remove Selected"):
-            index_to_remove = removal_options.index(to_remove)
-            removed = st.session_state['portfolio'].pop(index_to_remove)
-            st.success(f"Removed {removed['stock']} bought on {removed['buy_date']}")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No valid historical data found for the selected time range.")
