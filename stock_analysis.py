@@ -1,17 +1,13 @@
 # stock_analysis.py
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
 from utils import plot_area_chart
+from utils import search_bar_selector, load_stock_data
+
 
 def stock_analysis_page():
-    available_stocks = {
-        "Motilal Oswal Midcap": "0P00012ALS.BO",
-        "Facebook (Meta)": "META",
-        "Netflix": "NFLX"
-    }
-
     duration_map = {
         '1W': '5d',
         '1M': '1mo',
@@ -21,17 +17,20 @@ def stock_analysis_page():
         'ALL': 'max'
     }
 
-    st.title(" Stock Price Analysis")
+    st.title("Stock / Mutual Fund Analysis")
 
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        selected_stock = st.selectbox("Select Stock:", list(available_stocks.keys()))
-    with col2:
-        selected_duration_label = st.radio("Select Time Duration:", list(duration_map.keys()), horizontal=True)
+    selected_entry = search_bar_selector()
+    if not selected_entry:
+        st.info("Please search and select a stock or mutual fund to begin.")
+        return
 
-    symbol = available_stocks[selected_stock]
+    yahoo_symbol = selected_entry.get("Yahoo_Ticker")
+    display_name = f"{selected_entry.get('Symbol')} - {selected_entry.get('Company')}"
+
+    selected_duration_label = st.radio("Select Time Duration:", list(duration_map.keys()), horizontal=True)
     period = duration_map[selected_duration_label]
-    ticker = yf.Ticker(symbol)
+
+    ticker = yf.Ticker(yahoo_symbol)
     data = ticker.history(period=period)
 
     st.markdown("### Current Price")
@@ -43,7 +42,7 @@ def stock_analysis_page():
         change_color = "green" if change >= 0 else "red"
 
         st.markdown(
-            f"<h3 style='color:{change_color};'>{current_price:.2f} INR "
+            f"<h3 style='color:{change_color};'>{current_price:.2f} "
             f"{change:+.2f} ({percent_change:+.2f}%) past {selected_duration_label}</h3>",
             unsafe_allow_html=True
         )
@@ -52,11 +51,11 @@ def stock_analysis_page():
             df=data,
             x_col="Date",
             y_col="Close",
-            title=f"{selected_stock} - Closing Prices ({selected_duration_label})",
-            y_label="Price (₹)",
+            title=f"{display_name} - Closing Prices ({selected_duration_label})",
+            y_label="Price",
             line_color=change_color,
             fill_color='rgba(0, 255, 0, 0.2)' if change >= 0 else 'rgba(255, 0, 0, 0.2)'
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.warning("No data found.")
+        st.warning("No data found for the selected duration.")
