@@ -1,53 +1,12 @@
-import streamlit as st
+import streamlit as st 
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
-from utils import search_bar_selector, load_stock_data
-from utils import plot_area_chart
-
-
-@st.cache_data
-def load_stock_data():
-    return pd.read_csv("combined_stocks_yahoo.csv")
-
-# utils.py
-import streamlit as st
-import pandas as pd
-
-@st.cache_data
-def load_stock_data():
-    return pd.read_csv("combined_stocks_yahoo.csv")
-
-def search_bar_selector(key="search"):
-    df = load_stock_data()
-    df['Display'] = df['Symbol'].astype(str) + " - " + df['Company'].astype(str)
-
-    query = st.text_input("Search Stock / Mutual Fund:", key=key)
-
-    if not query:
-        return None
-
-    # Case-insensitive partial match
-    filtered_df = df[df['Display'].str.contains(query, case=False, na=False)]
-
-    if filtered_df.empty:
-        st.warning("No matching stock or mutual fund found.")
-        return None
-
-    selected_display = st.selectbox(
-        "Select from matched results:",
-        options=filtered_df['Display'].tolist(),
-        key=key + "_select"
-    )
-
-    selected_row = filtered_df[filtered_df['Display'] == selected_display]
-    if not selected_row.empty:
-        return selected_row.iloc[0].to_dict()
-    return None
-
-
+from datetime import datetime, timedelta
+from utils import search_bar_selector, load_stock_data, plot_area_chart
 
 def portfolio_tracker_page():
+    st.title("📊 Portfolio Tracker")
+
     duration_map = {
         '1W': '5d',
         '1M': '1mo',
@@ -57,36 +16,42 @@ def portfolio_tracker_page():
         'ALL': 'max'
     }
 
-    st.title("📊 Portfolio Tracker")
-
+    # Initialize portfolio session state
     if 'portfolio' not in st.session_state:
         st.session_state['portfolio'] = []
 
-    # ---- Add new stock to portfolio form ----
+    # ---- Add stock to portfolio ----
     with st.form("portfolio_form"):
         selected = search_bar_selector(key="portfolio_search")
-
-        buy_date = st.date_input("📅 Buy Date", value=datetime.today())
-        units = st.number_input("📦 Units Owned", min_value=0.0, step=0.001, format="%.5f")
+        default_date = datetime.today() - timedelta(days=30)
+        buy_date = st.date_input("📅 Buy Date", value=default_date)
+        units = st.number_input("📈 Units Owned", min_value=0.0, step=0.001, format="%.5f")
 
         submitted = st.form_submit_button("➕ Add to Portfolio")
 
         if submitted:
             if selected and units > 0:
-                st.session_state['portfolio'].append({
-                    "stock": selected['Display'],
-                    "symbol": selected['Yahoo_Ticker'],
-                    "buy_date": buy_date,
-                    "units": units
-                })
-                st.success(f"✅ Added {units:.2f} units of {selected['Display']} bought on {buy_date}")
-                st.rerun()
-            else:
-                st.error("Please select a valid stock and enter units > 0.")
+                symbol = selected.get("Yahoo_Ticker") or selected.get("Symbol")
+                display = selected.get("Display") or f"{symbol} - {selected.get('Company', '')}"
 
-    # ---- Portfolio display ----
+                already_added = any(item['symbol'] == symbol for item in st.session_state['portfolio'])
+                if already_added:
+                    st.warning("⚠️ This stock is already in your portfolio.")
+                else:
+                    st.session_state['portfolio'].append({
+                        "stock": display,
+                        "symbol": symbol,
+                        "buy_date": buy_date,
+                        "units": units
+                    })
+                    st.success(f"✅ Added {units:.2f} units of {display} bought on {buy_date}")
+                    st.rerun()
+            else:
+                st.error("❌ Please select a valid stock and enter units greater than 0.")
+
+    # ---- Display Portfolio ----
     if st.session_state['portfolio']:
-        st.markdown("### 💼 Portfolio Summary")
+        st.markdown("### 📑 Portfolio Summary")
 
         col1, col2, col3, col4, col5 = st.columns([3, 3, 2, 2, 1])
         col1.markdown("**Stock**")
@@ -112,35 +77,41 @@ def portfolio_tracker_page():
         )
         period = duration_map[selected_duration_label]
 
+        # ---- Calculate portfolio history ----
         total_value_df = pd.DataFrame()
 
         for item in st.session_state['portfolio']:
-            ticker = yf.Ticker(item['symbol'])
-            hist = ticker.history(period=period)
+            symbol = item['symbol']
+            try:
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period=period)
+            except Exception as e:
+                st.warning(f"⚠️ Failed to fetch data for {item['stock']} ({symbol}): {e}")
+                continue
 
             if hist.empty or "Close" not in hist:
-                st.warning(f"No data found for {item['stock']} ({item['symbol']})")
+                st.warning(f"⚠️ No data found for {item['stock']} ({symbol})")
                 continue
 
             if hist.index.tz is not None:
                 hist.index = hist.index.tz_localize(None)
 
             buy_date_ts = pd.Timestamp(item['buy_date'])
-            hist['Value'] = hist["Close"] * item['units']
-            hist.loc[hist.index < buy_date_ts, 'Value'] = 0
+            hist['Value'] = (hist["Close"] * item['units']).where(hist.index >= buy_date_ts, 0)
             hist = hist[['Value']].copy()
 
             if total_value_df.empty:
                 total_value_df = hist
             else:
-                total_value_df = total_value_df.join(hist, how="outer", rsuffix=f"_{item['symbol']}")
+                total_value_df = total_value_df.join(hist, how="outer", rsuffix=f"_{symbol}")
 
+        # ---- Plot total value ----
         if not total_value_df.empty:
             total_value_df.fillna(0, inplace=True)
             total_value_df['Total Value'] = total_value_df.sum(axis=1)
             latest_value = total_value_df['Total Value'].iloc[-1]
 
-            st.markdown(f"<h3>📈 Total Portfolio Value Today: ₹{latest_value:,.2f}</h3>", unsafe_allow_html=True)
+            st.markdown(f"<h3>💰 Total Portfolio Value Today: ₹{latest_value:,.2f}</h3>", unsafe_allow_html=True)
 
             total_value_df = total_value_df.reset_index()
             total_value_df.rename(columns={"index": "Date"}, inplace=True)
@@ -149,11 +120,11 @@ def portfolio_tracker_page():
                 df=total_value_df,
                 x_col='Date',
                 y_col='Total Value',
-                title="📉 Overall Portfolio Value Over Time",
+                title="📈 Overall Portfolio Value Over Time",
                 y_label="Value (₹)"
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("⚠️ No valid historical data found for the selected time range.")
+            st.info("📭 No valid historical data found for the selected time range.")
     else:
-        st.info("📝 Your portfolio is empty. Use the form above to add stocks or mutual funds.")
+        st.info("📭 Your portfolio is empty. Use the form above to add stocks or mutual funds.")
