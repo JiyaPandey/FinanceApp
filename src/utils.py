@@ -7,7 +7,8 @@ def load_stock_data():
     """
     Loads stock and mutual fund data from CSV.
     """
-    return pd.read_csv("combined_stocks_yahoo.csv")
+    return pd.read_csv("data/combined_stocks_yahoo.csv")
+
 
 def search_bar_selector(key="search"):
     """

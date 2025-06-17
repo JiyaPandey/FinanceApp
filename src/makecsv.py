@@ -6,7 +6,7 @@ from datetime import datetime
 # ==========================
 # 1. Fetch NSE Stocks (India)
 # ==========================
-print("📥 Fetching NSE stocks...")
+print(" Fetching NSE stocks...")
 
 # Get today's date in the required format
 today = datetime.today().strftime('%Y%m%d')
@@ -42,7 +42,7 @@ except Exception as e:
 # ==========================
 # 2. Fetch US Stocks (NASDAQ)
 # ==========================
-print("📥 Fetching NASDAQ stocks...")
+print(" Fetching NASDAQ stocks...")
 us_df = pd.read_csv("https://raw.githubusercontent.com/datasets/nasdaq-listings/master/data/nasdaq-listed-symbols.csv")
 us_df['Yahoo_Ticker'] = us_df['Symbol']
 us_df['Country'] = "US"
@@ -53,7 +53,7 @@ us_df = us_df[['Symbol', 'Company', 'Yahoo_Ticker', 'Country', 'Type']]
 # ==========================
 # 3. Fetch Indian Mutual Funds (from AMFI)
 # ==========================
-print("📥 Fetching Indian mutual funds (AMFI)...")
+print(" Fetching Indian mutual funds (AMFI)...")
 amfi_url = "https://www.amfiindia.com/spages/NAVAll.txt"
 amfi_response = requests.get(amfi_url, headers=headers)
 amfi_text = amfi_response.content.decode('utf-8')
@@ -87,7 +87,7 @@ mf_df = pd.DataFrame(mutual_funds)
 # ==========================
 # 4. Combine All and Save
 # ==========================
-print("📦 Combining all data...")
+print(" Combining all data...")
 
 # Ensure all dataframes have same columns
 mf_df = mf_df[['Symbol', 'Company', 'Yahoo_Ticker', 'Country', 'Type', 'AMC', 'NAV_Date', 'NAV']]

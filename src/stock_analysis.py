@@ -5,7 +5,7 @@ from datetime import datetime
 from utils import search_bar_selector, plot_area_chart
 
 def stock_analysis_page():
-    st.title("📈 Stock Analysis")
+    st.title(" Stock Analysis")
 
     # --- Stock selection ---
     selected = search_bar_selector(key="stock_analysis_search")
@@ -30,7 +30,7 @@ def stock_analysis_page():
     }
 
     selected_duration_label = st.radio(
-        "⏳ Select Time Duration:",
+        " Select Time Duration:",
         list(duration_map.keys()), horizontal=True, key="analysis_duration"
     )
     period = duration_map[selected_duration_label]
@@ -58,13 +58,13 @@ def stock_analysis_page():
         df=hist,
         x_col="Date",
         y_col="Close Price",
-        title=f"📉 {symbol} Price Trend",
+        title=f" {symbol} Price Trend",
         y_label="Price (₹)"
     )
     st.plotly_chart(fig, use_container_width=True)
 
     # --- Recent price table ---
-    st.markdown("### 📋 Recent Price Table")
+    st.markdown("###  Recent Price Table")
     hist_display = hist[["Date", "Close Price"]].copy()
     hist_display["Date"] = hist_display["Date"].dt.strftime("%Y-%m-%d")
     st.dataframe(
